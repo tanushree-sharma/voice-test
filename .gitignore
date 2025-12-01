@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.conda/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Audio files (recordings)
+*.wav
+*.mp3
+*.ogg
+*.flac
+
+# Project-specific: ignore everything except pipecat-test/
+# Ignore root-level files
+/*
+!/pipecat-test/
+!README.md
+!.gitignore
+
+# Ignore other test directories
+livekit-test/
+pipecat-test/recordings/
+
+# Lock files (optional - uncomment if you want to ignore)
+# uv.lock
+# poetry.lock
+# Pipfile.lock
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
