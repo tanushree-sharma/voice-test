@@ -48,10 +48,11 @@ env/
 *.ogg
 *.flac
 
-# Project-specific: ignore everything except pipecat-test/
+# Project-specific: ignore everything except pipecat-test/ and livekit-test/
 # Ignore root-level files
 /*
 !/pipecat-test/
+!/livekit-test/
 !README.md
 !.gitignore
 
