@@ -55,14 +55,13 @@ env/
 !README.md
 !.gitignore
 
-# Ignore other test directories
-livekit-test/
+# Ignore test directories
 pipecat-test/recordings/
 
 # Lock files (optional - uncomment if you want to ignore)
-# uv.lock
-# poetry.lock
-# Pipfile.lock
+uv.lock
+poetry.lock
+Pipfile.lock
 
 # Logs
 *.log
