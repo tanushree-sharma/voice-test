@@ -17,22 +17,19 @@ Both pipelines stream STT → LLM → TTS and export OpenTelemetry spans enriche
 - LiveKit RTC + API keys for the LiveKit demo
 - LangSmith API key (used by both demos)
 
-Create a `.env.local` at the repo root with the secrets you need. Example:
+Create a `.env.local` file at the repo root with the following required environment variables:
 
 ```
+OPENAI_API_KEY=<api-key>
+# other API keys, depending on providers used
+LANGSMITH_OTEL_ENABLED=true
 OTEL_EXPORTER_OTLP_ENDPOINT=https://api.smith.langchain.com/otel
-OTEL_EXPORTER_OTLP_HEADERS=x-api-key=ls_dev_xxx
-
-LIVEKIT_API_KEY=...
-LIVEKIT_API_SECRET=...
-LIVEKIT_URL=wss://...  # if using cloud/live cluster
-
-OPENAI_API_KEY=...
-ASSEMBLYAI_API_KEY=...
-CARTESIA_API_KEY=...
+OTEL_EXPORTER_OTLP_HEADERS=x-api-key=<api-key>,Langsmith-Project=pipecat-voice
+# if using LiveKit
+LIVEKIT_API_KEY=<api-key>
+LIVEKIT_API_SECRET=<secret>
+LIVEKIT_URL=wss://demo-xxxxx.livekit.cloud
 ```
-
-Pipecat relies on the same vendor keys; add any extra environment variables required by your Pipecat nodes (e.g., whisper models, custom TTS).
 
 ## Install Dependencies
 

@@ -26,7 +26,12 @@ class TurnAudioRecorder(FrameProcessor):
 
     Subscribes to TurnTrackingObserver events to detect turn boundaries and saves
     separate WAV files for user and AI audio when each turn ends.
+
+    Uses bounded buffers to prevent memory issues on very long turns.
     """
+
+    # Maximum frames to buffer per turn per source (prevents memory leak on long turns)
+    MAX_BUFFER_FRAMES = 1000  # ~20 seconds at typical frame rates
 
     def __init__(
         self,
@@ -95,32 +100,51 @@ class TurnAudioRecorder(FrameProcessor):
         """
         self._turn_tracker = turn_tracker
 
-        # Register event handlers
-        # Note: event handlers receive (observer, *args) where observer is the TurnTrackingObserver
-        async def on_turn_started(observer, turn_number):
-            await self._handle_turn_started(turn_number)
-
-        async def on_turn_ended(observer, turn_number, duration, was_interrupted):
-            await self._handle_turn_ended(turn_number, duration, was_interrupted)
-
-        turn_tracker.add_event_handler("on_turn_started", on_turn_started)
-        turn_tracker.add_event_handler("on_turn_ended", on_turn_ended)
+        # Register event handlers using wrapper methods
+        turn_tracker.add_event_handler("on_turn_started", self._on_turn_started_wrapper)
+        turn_tracker.add_event_handler("on_turn_ended", self._on_turn_ended_wrapper)
 
         logger.info(
             f"TurnAudioRecorder connected to TurnTrackingObserver for conversation {self._conversation_id}"
         )
+
+    async def _on_turn_started_wrapper(self, observer, turn_number: int):
+        """
+        Wrapper for turn started event handler.
+        Event handlers receive (observer, *args) - we ignore observer and delegate to handler.
+
+        Args:
+            observer: TurnTrackingObserver instance (ignored)
+            turn_number: The turn number that just started
+        """
+        await self._handle_turn_started(turn_number)
+
+    async def _on_turn_ended_wrapper(self, observer, turn_number: int, duration: float, was_interrupted: bool):
+        """
+        Wrapper for turn ended event handler.
+        Event handlers receive (observer, *args) - we ignore observer and delegate to handler.
+
+        Args:
+            observer: TurnTrackingObserver instance (ignored)
+            turn_number: The turn number that just ended
+            duration: Duration of the turn in seconds
+            was_interrupted: Whether the turn was interrupted by user
+        """
+        await self._handle_turn_ended(turn_number, duration, was_interrupted)
 
     async def _handle_turn_started(self, turn_number: int):
         """
         Handle turn started event.
 
         Resets buffers and prepares for new turn audio capture.
+        Buffer clearing here prevents unbounded memory growth across turns.
 
         Args:
             turn_number: The turn number that just started
         """
         self._current_turn_number = turn_number
         self._is_turn_active = True
+        # Clear buffers from previous turn (prevents memory accumulation)
         self._current_user_frames = []
         self._current_ai_frames = []
         self._user_detected_rates.clear()
@@ -159,13 +183,29 @@ class TurnAudioRecorder(FrameProcessor):
                 # User audio from microphone
                 if frame_sample_rate:
                     self._user_detected_rates.add(frame_sample_rate)
-                self._current_user_frames.append((frame.audio, frame_sample_rate))
+
+                # Enforce buffer limit to prevent memory leak on very long turns
+                if len(self._current_user_frames) < self.MAX_BUFFER_FRAMES:
+                    self._current_user_frames.append((frame.audio, frame_sample_rate))
+                elif len(self._current_user_frames) == self.MAX_BUFFER_FRAMES:
+                    logger.warning(
+                        f"User audio buffer limit reached for turn {self._current_turn_number}. "
+                        f"Dropping additional frames to prevent memory leak."
+                    )
 
             elif isinstance(frame, (OutputAudioRawFrame, TTSAudioRawFrame)):
                 # AI/TTS audio output
                 if frame_sample_rate:
                     self._ai_detected_rates.add(frame_sample_rate)
-                self._current_ai_frames.append((frame.audio, frame_sample_rate))
+
+                # Enforce buffer limit to prevent memory leak on very long turns
+                if len(self._current_ai_frames) < self.MAX_BUFFER_FRAMES:
+                    self._current_ai_frames.append((frame.audio, frame_sample_rate))
+                elif len(self._current_ai_frames) == self.MAX_BUFFER_FRAMES:
+                    logger.warning(
+                        f"AI audio buffer limit reached for turn {self._current_turn_number}. "
+                        f"Dropping additional frames to prevent memory leak."
+                    )
 
         await self.push_frame(frame, direction)
 

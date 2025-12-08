@@ -179,10 +179,9 @@ class LangSmithSpanProcessor(SpanProcessor):
             if conv_msgs:
                 system_msg, first_user_msg, remaining_msgs = self._split_conversation_messages(conv_msgs)
 
-                # Add input (system + first user message)
+                # Add input (first user message only, exclude system message)
+                # System message is only shown in LLM call spans, not in job entrypoint
                 prompt_msgs = []
-                if system_msg:
-                    prompt_msgs.append(system_msg)
                 if first_user_msg:
                     prompt_msgs.append(first_user_msg)
                 if prompt_msgs:

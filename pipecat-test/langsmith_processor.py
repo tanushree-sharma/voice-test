@@ -6,7 +6,6 @@ for proper conversation tracking and visualization.
 """
 import base64
 import json
-import time
 from pathlib import Path
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import SpanProcessor, ReadableSpan, TracerProvider
@@ -245,32 +244,29 @@ class LangSmithSTTSpanProcessor(SpanProcessor):
             if recording_path_str:
                 recording_path = Path(recording_path_str)
 
-                # Wait briefly for file to be saved (handles timing between task completion and file write)
-                max_retries = 10
-                retry_delay = 0.2
+                # Try to read the file once - don't block the telemetry pipeline with retries
+                # The file should already exist since save_recording() is called before span ends
+                if recording_path.exists():
+                    try:
+                        with open(recording_path, 'rb') as f:
+                            audio_data = f.read()
+                            if audio_data:  # Ensure file is not empty
+                                audio_base64 = base64.b64encode(audio_data).decode('utf-8')
 
-                for attempt in range(max_retries):
-                    if recording_path.exists():
-                        try:
-                            with open(recording_path, 'rb') as f:
-                                audio_data = f.read()
-                                if audio_data:  # Ensure file is not empty
-                                    audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                                attachments = [{
+                                    "name": recording_path.name,
+                                    "content": audio_base64,
+                                    "mime_type": "audio/wav"
+                                }]
 
-                                    attachments = [{
-                                        "name": recording_path.name,
-                                        "content": audio_base64,
-                                        "mime_type": "audio/wav"
-                                    }]
-
-                                    span._attributes["langsmith.attachments"] = json.dumps(attachments)
-                                    break
-                        except Exception as e:
-                            logger.warning(f"Failed to read recording file {recording_path} (attempt {attempt + 1}/{max_retries}): {e}")
-                            if attempt < max_retries - 1:
-                                time.sleep(retry_delay)
-                    elif attempt < max_retries - 1:
-                        time.sleep(retry_delay)
+                                span._attributes["langsmith.attachments"] = json.dumps(attachments)
+                                logger.debug(f"Attached recording {recording_path.name} to conversation span")
+                            else:
+                                logger.warning(f"Recording file {recording_path} exists but is empty")
+                    except Exception as e:
+                        logger.warning(f"Failed to read recording file {recording_path}: {e}")
+                else:
+                    logger.warning(f"Recording file {recording_path} does not exist when attaching to span")
 
             # Cleanup
             if trace_id in self.conversation_messages:
