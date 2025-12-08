@@ -1,0 +1,16 @@
+[project]
+name = "audio"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pipecat-ai>=0.0.95",
+    "python-dotenv",
+    "openai",
+    "livekit-agents[silero,turn-detector]~=1.2",
+    "livekit-plugins-noise-cancellation~=0.2",
+]
+
+[tool.setuptools]
+py_modules = ["main", "local_whisper_test"]
