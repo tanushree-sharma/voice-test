@@ -132,14 +132,11 @@ class TurnAudioRecorder(FrameProcessor):
         """
         Handle turn ended event.
 
-        Saves audio files for this turn and registers with span processor.
-
         Args:
             turn_number: The turn number that just ended
             duration: Duration of the turn in seconds
             was_interrupted: Whether the turn was interrupted by user
         """
-        await self._save_turn_audio(turn_number, was_interrupted)
         self._is_turn_active = False
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
@@ -154,9 +151,8 @@ class TurnAudioRecorder(FrameProcessor):
 
         # Only capture audio frames when turn is active
         if isinstance(frame, AudioRawFrame) and self._is_turn_active:
-            frame_sample_rate = getattr(frame, 'sample_rate', None) or getattr(
-                frame, 'sampleRate', None
-            )
+            # Pipecat uses 'sample_rate' attribute on AudioRawFrame
+            frame_sample_rate = getattr(frame, 'sample_rate', None)
 
             # Distinguish user audio from AI audio
             if isinstance(frame, InputAudioRawFrame):
@@ -201,6 +197,7 @@ class TurnAudioRecorder(FrameProcessor):
                 )
                 self._save_wav_file(user_path, self._current_user_frames, sample_rate)
                 saved_files['user'] = str(user_path)
+                logger.debug(f"Saved user audio for turn {turn_number} to {user_path}")
 
             # Save AI audio if exists
             if self._current_ai_frames:
@@ -212,25 +209,12 @@ class TurnAudioRecorder(FrameProcessor):
                 )
                 self._save_wav_file(ai_path, self._current_ai_frames, sample_rate)
                 saved_files['ai'] = str(ai_path)
+                logger.debug(f"Saved AI audio for turn {turn_number} to {ai_path}")
 
         except Exception as e:
-            logger.error(f"Failed to save turn {turn_number} audio: {e}")
+            logger.error(f"Failed to save turn {turn_number} audio in conversation {self._conversation_id}: {e}")
 
         return saved_files
-
-    async def _save_turn_audio(self, turn_number: int, was_interrupted: bool):
-        """
-        Save user and AI audio for the current turn to separate WAV files.
-        This is called asynchronously from the turn ended event.
-        Note: The actual saving is done synchronously in save_turn_audio_sync()
-        when the turn span ends.
-
-        Args:
-            turn_number: The turn number
-            was_interrupted: Whether the turn was interrupted
-        """
-        # No-op: Files are saved synchronously by the span processor
-        pass
 
     def _save_wav_file(
         self, output_path: Path, frames: list, target_sample_rate: int

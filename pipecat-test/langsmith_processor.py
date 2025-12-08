@@ -6,10 +6,12 @@ for proper conversation tracking and visualization.
 """
 import base64
 import json
+import time
 from pathlib import Path
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import SpanProcessor, ReadableSpan, TracerProvider
 from opentelemetry import trace
+from loguru import logger
 from pipecat.utils.tracing.setup import setup_tracing
 
 
@@ -229,9 +231,9 @@ class LangSmithSTTSpanProcessor(SpanProcessor):
                 audio_recorder = self.conversation_recorders[conversation_id]
                 try:
                     audio_recorder.save_recording()
-                except Exception:
-                    pass  # Silently fail - recording will be saved in finally block as backup
-            
+                except Exception as e:
+                    logger.warning(f"Failed to save recording for conversation {conversation_id}: {e}")
+
             # Try to find recording by conversation_id, or use single available recording
             recording_path_str = None
             if conversation_id and conversation_id in self.conversation_recordings:
@@ -242,12 +244,11 @@ class LangSmithSTTSpanProcessor(SpanProcessor):
             
             if recording_path_str:
                 recording_path = Path(recording_path_str)
-                
+
                 # Wait briefly for file to be saved (handles timing between task completion and file write)
-                import time
                 max_retries = 10
                 retry_delay = 0.2
-                
+
                 for attempt in range(max_retries):
                     if recording_path.exists():
                         try:
@@ -255,17 +256,17 @@ class LangSmithSTTSpanProcessor(SpanProcessor):
                                 audio_data = f.read()
                                 if audio_data:  # Ensure file is not empty
                                     audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-                                    
+
                                     attachments = [{
                                         "name": recording_path.name,
                                         "content": audio_base64,
                                         "mime_type": "audio/wav"
                                     }]
-                                    
+
                                     span._attributes["langsmith.attachments"] = json.dumps(attachments)
                                     break
-                        except Exception:
-                            # Silently retry on error
+                        except Exception as e:
+                            logger.warning(f"Failed to read recording file {recording_path} (attempt {attempt + 1}/{max_retries}): {e}")
                             if attempt < max_retries - 1:
                                 time.sleep(retry_delay)
                     elif attempt < max_retries - 1:
@@ -373,8 +374,8 @@ class LangSmithSTTSpanProcessor(SpanProcessor):
                     audio_data = f.read()
                     if audio_data:
                         return base64.b64encode(audio_data).decode('utf-8')
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to load audio file {file_path}: {e}")
         return None
 
     def shutdown(self) -> None:

@@ -31,7 +31,8 @@ class AudioRecorder(FrameProcessor):
 
         # Capture all audio frames
         if isinstance(frame, AudioRawFrame):
-            frame_sample_rate = getattr(frame, 'sample_rate', None) or getattr(frame, 'sampleRate', None)
+            # Pipecat uses 'sample_rate' attribute on AudioRawFrame
+            frame_sample_rate = getattr(frame, 'sample_rate', None)
             if frame_sample_rate:
                 self.detected_sample_rates.add(frame_sample_rate)
             self.audio_frames.append((frame.audio, frame_sample_rate))
@@ -66,5 +67,5 @@ class AudioRecorder(FrameProcessor):
 
             logger.info(f"Recording saved to: {self.output_path}")
         except Exception as e:
-            logger.error(f"Failed to save recording: {e}")
+            logger.error(f"Failed to save recording to {self.output_path}: {e}")
 

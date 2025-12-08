@@ -12,6 +12,7 @@ Setup: Configure these environment variables in your .env file:
 - OTEL_EXPORTER_OTLP_HEADERS: LangSmith auth headers (x-api-key=your_key)
 """
 import asyncio
+import os
 import sys
 import uuid
 import warnings
@@ -46,11 +47,41 @@ logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
 
 
+def validate_environment():
+    """
+    Validate that all required environment variables are set.
+
+    Raises:
+        ValueError: If any required environment variable is missing
+    """
+    required_vars = {
+        "OPENAI_API_KEY": "OpenAI API key for LLM and TTS services",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "LangSmith OTLP endpoint (e.g., https://api.smith.langchain.com/otel)",
+        "OTEL_EXPORTER_OTLP_HEADERS": "LangSmith authentication headers (e.g., x-api-key=your_key)",
+    }
+
+    missing_vars = []
+    for var_name, description in required_vars.items():
+        if not os.getenv(var_name):
+            missing_vars.append(f"  - {var_name}: {description}")
+
+    if missing_vars:
+        error_msg = "Missing required environment variables:\n" + "\n".join(missing_vars)
+        error_msg += "\n\nPlease set these in your .env file or environment."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    logger.info("Environment validation passed")
+
+
 async def main():
     """
     Main demo function showing how to build a voice agent with Pipecat and LangSmith observability.
     Flow: Audio input -> STT -> LLM -> TTS -> Audio output
     """
+    # Validate environment variables before proceeding
+    validate_environment()
+
     # Generate unique conversation ID (used for grouping spans in LangSmith)
     conversation_id = str(uuid.uuid4())
     logger.info(f"Starting conversation: {conversation_id}")
