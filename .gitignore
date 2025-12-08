@@ -51,8 +51,8 @@ env/
 # Project-specific: ignore everything except pipecat-test/ and livekit-test/
 # Ignore root-level files
 /*
-!/pipecat-test/
-!/livekit-test/
+!/pipecat/
+!/livekit/
 !README.md
 !.gitignore
 
