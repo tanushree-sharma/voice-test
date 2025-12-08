@@ -55,6 +55,7 @@ env/
 !/livekit/
 !README.md
 !.gitignore
+!requirements.txt
 
 # Ignore test directories
 pipecat-test/recordings/
