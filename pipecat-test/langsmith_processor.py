@@ -27,6 +27,8 @@ class LangSmithSTTSpanProcessor(SpanProcessor):
         self.trace_to_conversation_id = {}  # trace_id -> conversation_id
         self.conversation_recordings = {}  # conversation_id -> recording_path
         self.conversation_recorders = {}  # conversation_id -> AudioRecorder instance
+        self.turn_recordings = {}  # conversation_id -> {turn_number: {user: path, ai: path}}
+        self.turn_audio_recorders = {}  # conversation_id -> TurnAudioRecorder instance
 
     def on_start(self, span: ReadableSpan, parent_context=None) -> None:
         pass
@@ -36,6 +38,30 @@ class LangSmithSTTSpanProcessor(SpanProcessor):
         self.conversation_recordings[conversation_id] = recording_path
         if audio_recorder:
             self.conversation_recorders[conversation_id] = audio_recorder
+
+    def register_turn_audio_recorder(self, conversation_id: str, turn_audio_recorder):
+        """
+        Register the TurnAudioRecorder instance for a conversation.
+        This allows the span processor to call save_turn_audio_sync() when turn spans end.
+
+        Args:
+            conversation_id: The conversation ID
+            turn_audio_recorder: TurnAudioRecorder instance
+        """
+        self.turn_audio_recorders[conversation_id] = turn_audio_recorder
+
+    def register_turn_recording(self, conversation_id: str, turn_number: int, recording_paths: dict):
+        """
+        Register turn-specific audio recordings for attachment to turn spans.
+
+        Args:
+            conversation_id: The conversation ID
+            turn_number: The turn number
+            recording_paths: Dict with 'user' and/or 'ai' keys pointing to WAV file paths
+        """
+        if conversation_id not in self.turn_recordings:
+            self.turn_recordings[conversation_id] = {}
+        self.turn_recordings[conversation_id][turn_number] = recording_paths
     
     def on_end(self, span: ReadableSpan) -> None:
         """
@@ -119,6 +145,44 @@ class LangSmithSTTSpanProcessor(SpanProcessor):
                 status = "interrupted" if was_interrupted else "no response"
                 self._set_completion_attributes(span, [{"role": "assistant", "content": status}])
 
+            # Attach turn audio files - save them NOW before span is exported
+            conversation_id = span.attributes.get("conversation.id", "")
+            if not conversation_id:
+                conversation_id = self.trace_to_conversation_id.get(trace_id, "")
+
+            # Get the turn audio recorder and save files synchronously RIGHT NOW
+            if conversation_id and conversation_id in self.turn_audio_recorders:
+                turn_audio_recorder = self.turn_audio_recorders[conversation_id]
+
+                # Save files synchronously before span is exported
+                turn_files = turn_audio_recorder.save_turn_audio_sync(turn_number)
+
+                if turn_files:
+                    attachments = []
+
+                    # Attach user audio
+                    if 'user' in turn_files:
+                        user_audio = self._load_audio_file(turn_files['user'])
+                        if user_audio:
+                            attachments.append({
+                                "name": f"turn_{turn_number}_user.wav",
+                                "content": user_audio,
+                                "mime_type": "audio/wav"
+                            })
+
+                    # Attach AI audio
+                    if 'ai' in turn_files:
+                        ai_audio = self._load_audio_file(turn_files['ai'])
+                        if ai_audio:
+                            attachments.append({
+                                "name": f"turn_{turn_number}_ai.wav",
+                                "content": ai_audio,
+                                "mime_type": "audio/wav"
+                            })
+
+                    if attachments:
+                        span._attributes["langsmith.attachments"] = json.dumps(attachments)
+
             # Cleanup
             if span_id in self.turn_messages:
                 del self.turn_messages[span_id]
@@ -144,10 +208,8 @@ class LangSmithSTTSpanProcessor(SpanProcessor):
             if conv_msgs:
                 system_msg, first_user_msg, remaining_msgs = self._split_conversation_messages(conv_msgs)
 
-                # Add input (system + first user message)
+                # Add input (first user message only, exclude system message)
                 prompt_msgs = []
-                if system_msg:
-                    prompt_msgs.append(system_msg)
                 if first_user_msg:
                     prompt_msgs.append(first_user_msg)
                 self._set_prompt_attributes(span, prompt_msgs)
@@ -218,6 +280,10 @@ class LangSmithSTTSpanProcessor(SpanProcessor):
                 del self.conversation_recordings[conversation_id]
             if conversation_id in self.conversation_recorders:
                 del self.conversation_recorders[conversation_id]
+            if conversation_id in self.turn_recordings:
+                del self.turn_recordings[conversation_id]
+            if conversation_id in self.turn_audio_recorders:
+                del self.turn_audio_recorders[conversation_id]
     
     def _set_prompt_attributes(self, span: ReadableSpan, messages: list, start_idx: int = 0):
         """Set gen_ai.prompt.* attributes from a list of messages."""
@@ -290,6 +356,27 @@ class LangSmithSTTSpanProcessor(SpanProcessor):
             if new_assistant_content not in existing_assistant_contents:
                 target_dict[key].append({"role": "assistant", "content": output_data})
 
+    def _load_audio_file(self, file_path: str):
+        """
+        Load and base64 encode an audio file.
+
+        Args:
+            file_path: Path to the audio file
+
+        Returns:
+            Base64-encoded audio data or None if file doesn't exist/can't be read
+        """
+        try:
+            recording_path = Path(file_path)
+            if recording_path.exists():
+                with open(recording_path, 'rb') as f:
+                    audio_data = f.read()
+                    if audio_data:
+                        return base64.b64encode(audio_data).decode('utf-8')
+        except Exception:
+            pass
+        return None
+
     def shutdown(self) -> None:
         pass
 
@@ -302,7 +389,7 @@ class LangSmithSTTSpanProcessor(SpanProcessor):
 setup_tracing(
     service_name="pipecat-langsmith-demo",
     exporter=OTLPSpanExporter(),
-    console_export=True,
+    console_export=False,  # Disable console export to avoid base64 audio spam
 )
 
 # Register our custom span processor to enrich Pipecat spans for LangSmith

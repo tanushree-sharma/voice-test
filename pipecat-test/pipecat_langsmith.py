@@ -35,12 +35,12 @@ from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.services.whisper.stt import WhisperSTTService
-from pipecat.services.openai import OpenAILLMService, OpenAITTSService
+from pipecat.services.openai import OpenAILLMService, OpenAITTSService, OpenAISTTService
 from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
 
-# Import supporting modules (setup_tracing runs during import, so env vars must be loaded first)
 from langsmith_processor import LangSmithSTTSpanProcessor, span_processor  # noqa: F401 - registers processor
 from audio_recorder import AudioRecorder
+from turn_audio_recorder import TurnAudioRecorder
 
 logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
@@ -86,9 +86,18 @@ async def main():
     )
     context_aggregator = llm.create_context_aggregator(context)
     audio_recorder = AudioRecorder(str(recording_path))
-    
-    # Register recording path and audio recorder with span processor for attachment to conversation span
+
+    # Create turn audio recorder for per-turn audio snippets
+    turn_audio_recorder = TurnAudioRecorder(
+        span_processor=span_processor,
+        conversation_id=conversation_id,
+        recordings_dir=recordings_dir,
+        turn_tracker=None,  # Will be set after task creation
+    )
+
+    # Register recorders with span processor
     span_processor.register_recording(conversation_id, str(recording_path), audio_recorder=audio_recorder)
+    span_processor.register_turn_audio_recorder(conversation_id, turn_audio_recorder)
 
     # Build the pipeline: audio flows through each processor in order
     pipeline = Pipeline([
@@ -97,7 +106,8 @@ async def main():
         context_aggregator.user(),   # Add user message to context
         llm,                         # Generate AI response
         tts,                         # Convert response to speech
-        audio_recorder,              # Record all audio
+        audio_recorder,              # Record all audio (full conversation)
+        turn_audio_recorder,         # Record per-turn audio snippets
         transport.output(),          # Play audio through speakers
         context_aggregator.assistant(),  # Add assistant message to context
     ])
@@ -110,6 +120,14 @@ async def main():
         enable_turn_tracking=True,  # Required when tracing is enabled
         conversation_id=conversation_id,
     )
+
+    # Wire up turn tracker to turn audio recorder
+    # The TurnTrackingObserver is created by the task when enable_turn_tracking=True
+    if task.turn_tracking_observer:
+        turn_audio_recorder.connect_to_turn_tracker(task.turn_tracking_observer)
+        logger.info("Turn audio recorder connected to turn tracker")
+    else:
+        logger.warning("TurnTrackingObserver not found - turn audio recording disabled")
 
     runner = PipelineRunner(handle_sigint=False if sys.platform == "win32" else True)
 
