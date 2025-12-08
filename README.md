@@ -84,10 +84,10 @@ python pipecat-test/pipecat_langsmith.py
 
 ```
 audio/
-├── livekit-test/
+├── livekit/
 │   ├── langsmith_processor.py
 │   └── livekitagents_langsmith.py
-├── pipecat-test/
+├── pipecat/
 │   ├── langsmith_processor.py
 │   ├── pipecat_langsmith.py
 │   └── recordings/
